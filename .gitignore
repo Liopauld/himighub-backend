@@ -1,0 +1,8 @@
+
+# Secrets
+.env
+.env.*
+config/firebase-service-account.json
+*firebase-adminsdk*.json
+*service-account*.json
+
