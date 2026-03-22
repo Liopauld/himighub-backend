@@ -1,6 +1,8 @@
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 
+const hasResendConfig = Boolean(process.env.RESEND_API_KEY);
+
 const hasSmtpConfig = Boolean(
   process.env.SMTP_HOST &&
   process.env.SMTP_PORT &&
@@ -77,6 +79,35 @@ const getFromAddress = () => {
   return configuredFrom;
 };
 
+const sendViaResend = async ({ to, subject, text, html }) => {
+  if (!hasResendConfig) {
+    throw new Error('Resend fallback not configured (missing RESEND_API_KEY).');
+  }
+
+  const from = process.env.RESEND_FROM || getFromAddress();
+  const payload = {
+    from,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html: html || `<pre>${String(text || '').replace(/</g, '&lt;')}</pre>`,
+    text: text || undefined,
+  };
+
+  const response = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Resend API failed (${response.status}): ${errText}`);
+  }
+};
+
 const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
   const tx = await getTransporter();
   if (!tx) {
@@ -87,6 +118,10 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
       to,
       missing,
     });
+    if (hasResendConfig) {
+      await sendViaResend({ to, subject, text, html });
+      return { skipped: false, provider: 'resend' };
+    }
     return { skipped: true };
   }
 
@@ -121,10 +156,18 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
     const retryConfig = await buildTransportConfig({ port: fallbackPort, secure: fallbackSecure });
     const retryTransporter = nodemailer.createTransport(retryConfig);
 
-    await retryTransporter.sendMail(payload);
+    try {
+      await retryTransporter.sendMail(payload);
+    } catch (retryErr) {
+      if (hasResendConfig) {
+        await sendViaResend({ to, subject, text, html });
+        return { skipped: false, provider: 'resend' };
+      }
+      throw retryErr;
+    }
   }
 
-  return { skipped: false };
+  return { skipped: false, provider: 'smtp' };
 };
 
 module.exports = { sendEmail };
