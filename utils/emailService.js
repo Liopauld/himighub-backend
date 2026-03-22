@@ -17,6 +17,10 @@ const getTransporter = () => {
     host: process.env.SMTP_HOST,
     port: Number(process.env.SMTP_PORT),
     secure: String(process.env.SMTP_SECURE || 'false') === 'true',
+    family: 4,
+    connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
+    greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
+    socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
@@ -47,7 +51,13 @@ const getFromAddress = () => {
 const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
   const tx = getTransporter();
   if (!tx) {
-    console.warn('[Email] SMTP not configured. Skipping email:', subject);
+    const missing = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS']
+      .filter((key) => !process.env[key]);
+    console.warn('[Email] SMTP not configured. Skipping email:', {
+      subject,
+      to,
+      missing,
+    });
     return { skipped: true };
   }
 

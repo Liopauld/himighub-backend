@@ -1,4 +1,5 @@
 const Product = require('../models/Product');
+const { hasCloudinaryConfig, uploadImageFromPath } = require('../utils/cloudinaryService');
 
 // GET /api/products
 const getProducts = async (req, res) => {
@@ -71,11 +72,19 @@ const createProduct = async (req, res) => {
       ? (Array.isArray(rawSizes) ? rawSizes : JSON.parse(rawSizes))
       : [];
 
-    const images = req.files
-      ? req.files.map(
-          (f) => `${req.protocol}://${req.get('host')}/uploads/${f.filename}`
-        )
-      : [];
+    const images = [];
+    if (req.files && req.files.length > 0) {
+      for (const f of req.files) {
+        if (hasCloudinaryConfig) {
+          const uploadedUrl = await uploadImageFromPath(f.path, 'himighub/products');
+          if (uploadedUrl) {
+            images.push(uploadedUrl);
+            continue;
+          }
+        }
+        images.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
+      }
+    }
 
     const product = await Product.create({
       name,
@@ -114,9 +123,17 @@ const updateProduct = async (req, res) => {
     }
 
     if (req.files && req.files.length > 0) {
-      const newImages = req.files.map(
-        (f) => `${req.protocol}://${req.get('host')}/uploads/${f.filename}`
-      );
+      const newImages = [];
+      for (const f of req.files) {
+        if (hasCloudinaryConfig) {
+          const uploadedUrl = await uploadImageFromPath(f.path, 'himighub/products');
+          if (uploadedUrl) {
+            newImages.push(uploadedUrl);
+            continue;
+          }
+        }
+        newImages.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
+      }
       product.images = [...product.images, ...newImages];
     }
 

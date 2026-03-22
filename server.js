@@ -22,6 +22,10 @@ connectDB();
 
 const app = express();
 
+// Render and other managed platforms sit behind a reverse proxy.
+// Trust forwarded headers so IP-based middleware (rate-limit, auth logs) works correctly.
+app.set('trust proxy', true);
+
 app.use(helmet());
 app.use(cors({ origin: process.env.CLIENT_URL || '*', credentials: true }));
 app.use(express.json());

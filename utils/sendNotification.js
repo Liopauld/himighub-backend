@@ -11,7 +11,11 @@ const User = require('../models/User');
 const sendNotification = async (tokens, userId, payload) => {
   if (!tokens || tokens.length === 0) return;
 
-  const expoTokens = tokens.filter((t) => typeof t === 'string' && t.startsWith('ExponentPushToken['));
+  const expoTokens = tokens.filter(
+    (t) =>
+      typeof t === 'string' &&
+      (t.startsWith('ExponentPushToken[') || t.startsWith('ExpoPushToken['))
+  );
   if (expoTokens.length === 0) return;
 
   const staleTokens = [];

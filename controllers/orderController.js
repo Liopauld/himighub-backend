@@ -229,74 +229,86 @@ const updateOrderStatus = async (req, res) => {
     await order.save();
 
     const shortId = order._id.toString().slice(-6).toUpperCase();
-    const notificationPayload = {
-      title: 'Order Update',
-      body: `Your order #${shortId} is now: ${status}`,
-      data: { orderId: order._id.toString(), screen: 'OrderDetails', type: 'order', status },
-    };
+    const orderId = order._id.toString();
+    const orderUserId = (order.user._id || order.user).toString();
 
-    await Notification.create({
-      user: order.user._id || order.user,
-      title: notificationPayload.title,
-      body: notificationPayload.body,
-      type: status === 'Out for Delivery' ? 'delivery' : 'order',
-      data: notificationPayload.data,
-    });
+    // Return immediately so admin status modal can close without waiting for SMTP/push delivery.
+    res.status(200).json({ success: true, message: 'Order status updated', data: { order } });
 
-    if (status === 'Delivered') {
-      await Notification.create({
-        user: order.user._id || order.user,
-        title: 'Receipt Sent',
-        body: `Your receipt for order #${shortId} has been emailed.`,
-        type: 'order',
-        data: { orderId: order._id.toString(), screen: 'OrderDetails', type: 'receipt', status },
-      });
-    }
+    // Execute side effects in background; failures should not block status updates.
+    (async () => {
+      try {
+        const notificationPayload = {
+          title: 'Order Update',
+          body: `Your order #${shortId} is now: ${status}`,
+          data: { orderId, screen: 'OrderDetails', type: 'order', status },
+        };
 
-    // Send push notification to order owner
-    const orderOwner = await User.findById(order.user._id || order.user);
-    if (orderOwner && orderOwner.pushTokens.length > 0) {
-      await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), notificationPayload);
-      if (status === 'Delivered') {
-        await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), {
-          title: 'Receipt Sent',
-          body: `Your receipt for order #${shortId} was sent to your email.`,
-          data: { orderId: order._id.toString(), screen: 'OrderDetails', type: 'receipt', status },
+        await Notification.create({
+          user: orderUserId,
+          title: notificationPayload.title,
+          body: notificationPayload.body,
+          type: status === 'Out for Delivery' ? 'delivery' : 'order',
+          data: notificationPayload.data,
         });
+
+        if (status === 'Delivered') {
+          await Notification.create({
+            user: orderUserId,
+            title: 'Receipt Sent',
+            body: `Your receipt for order #${shortId} has been emailed.`,
+            type: 'order',
+            data: { orderId, screen: 'OrderDetails', type: 'receipt', status },
+          });
+        }
+
+        const orderOwner = await User.findById(orderUserId);
+        if (orderOwner && orderOwner.pushTokens.length > 0) {
+          await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), notificationPayload);
+          if (status === 'Delivered') {
+            await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), {
+              title: 'Receipt Sent',
+              body: `Your receipt for order #${shortId} was sent to your email.`,
+              data: { orderId, screen: 'OrderDetails', type: 'receipt', status },
+            });
+          }
+        }
+
+        if (orderOwner?.email) {
+          const statusEmail = buildOrderStatusEmail({
+            customerName: orderOwner.name,
+            order,
+            status,
+          });
+
+          await sendEmail({
+            to: orderOwner.email,
+            subject: statusEmail.subject,
+            text: statusEmail.text,
+            html: statusEmail.html,
+            attachments: statusEmail.attachments,
+          });
+
+          if (status === 'Delivered') {
+            const receiptEmail = buildOrderReceiptEmail({
+              customerName: orderOwner.name,
+              order,
+            });
+            await sendEmail({
+              to: orderOwner.email,
+              subject: receiptEmail.subject,
+              text: receiptEmail.text,
+              html: receiptEmail.html,
+              attachments: receiptEmail.attachments,
+            });
+          }
+        }
+      } catch (sideEffectErr) {
+        console.warn('[orders/updateOrderStatus] background side effects failed:', sideEffectErr?.message || sideEffectErr);
       }
-    }
+    })();
 
-    if (orderOwner?.email) {
-      const statusEmail = buildOrderStatusEmail({
-        customerName: orderOwner.name,
-        order,
-        status,
-      });
-
-      await sendEmail({
-        to: orderOwner.email,
-        subject: statusEmail.subject,
-        text: statusEmail.text,
-        html: statusEmail.html,
-        attachments: statusEmail.attachments,
-      });
-
-      if (status === 'Delivered') {
-        const receiptEmail = buildOrderReceiptEmail({
-          customerName: orderOwner.name,
-          order,
-        });
-        await sendEmail({
-          to: orderOwner.email,
-          subject: receiptEmail.subject,
-          text: receiptEmail.text,
-          html: receiptEmail.html,
-          attachments: receiptEmail.attachments,
-        });
-      }
-    }
-
-    return res.status(200).json({ success: true, message: 'Order status updated', data: { order } });
+    return;
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message, data: {} });
   }

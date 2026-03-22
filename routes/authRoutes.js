@@ -8,6 +8,9 @@ const { verifyToken } = require('../middleware/authMiddleware');
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: process.env.NODE_ENV === 'development' ? 1000 : 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false },
   message: { success: false, message: 'Too many requests, please try again later', data: {} },
 });
 

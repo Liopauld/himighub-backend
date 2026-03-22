@@ -1,6 +1,7 @@
 const path = require('path');
 const User = require('../models/User');
 const { sendEmail } = require('../utils/emailService');
+const { hasCloudinaryConfig, uploadImageFromPath } = require('../utils/cloudinaryService');
 
 // GET /api/users/profile
 const getProfile = async (req, res) => {
@@ -48,7 +49,12 @@ const updateProfile = async (req, res) => {
     }
 
     if (req.file) {
-      user.avatar = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      if (hasCloudinaryConfig) {
+        const uploadedUrl = await uploadImageFromPath(req.file.path, 'himighub/avatars');
+        user.avatar = uploadedUrl || `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      } else {
+        user.avatar = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
+      }
     }
 
     await user.save();
@@ -66,6 +72,7 @@ const updateProfile = async (req, res) => {
           address: user.address,
           role: user.role,
           isActive: user.isActive,
+          updatedAt: user.updatedAt,
         },
       },
     });
@@ -77,8 +84,11 @@ const updateProfile = async (req, res) => {
 // PUT /api/users/push-token
 const savePushToken = async (req, res) => {
   const { token } = req.body;
+  const isValidExpoToken = (value) =>
+    typeof value === 'string' &&
+    (value.startsWith('ExponentPushToken[') || value.startsWith('ExpoPushToken['));
 
-  if (!token || !token.startsWith('ExponentPushToken[')) {
+  if (!isValidExpoToken(token)) {
     return res
       .status(400)
       .json({ success: false, message: 'Invalid push token format', data: {} });
@@ -89,7 +99,7 @@ const savePushToken = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: 'User not found', data: {} });
 
     // Clean stale tokens (keep only valid format ones) and add new
-    user.pushTokens = user.pushTokens.filter((t) => t.startsWith('ExponentPushToken['));
+    user.pushTokens = user.pushTokens.filter((t) => isValidExpoToken(t));
     if (!user.pushTokens.includes(token)) {
       user.pushTokens.push(token);
     }
