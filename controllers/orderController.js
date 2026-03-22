@@ -237,13 +237,13 @@ const updateOrderStatus = async (req, res) => {
 
     // Execute side effects in background; failures should not block status updates.
     (async () => {
-      try {
-        const notificationPayload = {
-          title: 'Order Update',
-          body: `Your order #${shortId} is now: ${status}`,
-          data: { orderId, screen: 'OrderDetails', type: 'order', status },
-        };
+      const notificationPayload = {
+        title: 'Order Update',
+        body: `Your order #${shortId} is now: ${status}`,
+        data: { orderId, screen: 'OrderDetails', type: 'order', status },
+      };
 
+      try {
         await Notification.create({
           user: orderUserId,
           title: notificationPayload.title,
@@ -261,9 +261,19 @@ const updateOrderStatus = async (req, res) => {
             data: { orderId, screen: 'OrderDetails', type: 'receipt', status },
           });
         }
+      } catch (notificationErr) {
+        console.warn('[orders/updateOrderStatus] notification write failed:', notificationErr?.message || notificationErr);
+      }
 
-        const orderOwner = await User.findById(orderUserId);
-        if (orderOwner && orderOwner.pushTokens.length > 0) {
+      let orderOwner = null;
+      try {
+        orderOwner = await User.findById(orderUserId);
+      } catch (userLookupErr) {
+        console.warn('[orders/updateOrderStatus] user lookup failed:', userLookupErr?.message || userLookupErr);
+      }
+
+      if (orderOwner && orderOwner.pushTokens.length > 0) {
+        try {
           await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), notificationPayload);
           if (status === 'Delivered') {
             await sendNotification(orderOwner.pushTokens, orderOwner._id.toString(), {
@@ -272,9 +282,13 @@ const updateOrderStatus = async (req, res) => {
               data: { orderId, screen: 'OrderDetails', type: 'receipt', status },
             });
           }
+        } catch (pushErr) {
+          console.warn('[orders/updateOrderStatus] push send failed:', pushErr?.message || pushErr);
         }
+      }
 
-        if (orderOwner?.email) {
+      if (orderOwner?.email) {
+        try {
           const statusEmail = buildOrderStatusEmail({
             customerName: orderOwner.name,
             order,
@@ -302,9 +316,15 @@ const updateOrderStatus = async (req, res) => {
               attachments: receiptEmail.attachments,
             });
           }
+        } catch (emailErr) {
+          console.warn('[orders/updateOrderStatus] email send failed:', {
+            orderId,
+            status,
+            to: orderOwner.email,
+            code: emailErr?.code,
+            message: emailErr?.message || emailErr,
+          });
         }
-      } catch (sideEffectErr) {
-        console.warn('[orders/updateOrderStatus] background side effects failed:', sideEffectErr?.message || sideEffectErr);
       }
     })();
 

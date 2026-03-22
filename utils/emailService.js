@@ -1,14 +1,19 @@
 const nodemailer = require('nodemailer');
 const dns = require('dns').promises;
 
-const hasResendConfig = Boolean(process.env.RESEND_API_KEY);
-
 const hasSmtpConfig = Boolean(
   process.env.SMTP_HOST &&
   process.env.SMTP_PORT &&
   process.env.SMTP_USER &&
   process.env.SMTP_PASS
 );
+
+const hasResendConfig = Boolean(process.env.RESEND_API_KEY);
+
+console.log('[Email] Provider config', {
+  smtpConfigured: hasSmtpConfig,
+  resendConfigured: hasResendConfig,
+});
 
 let transporter = null;
 let transporterPromise = null;
@@ -153,6 +158,16 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
         ? String(process.env.SMTP_FALLBACK_SECURE).toLowerCase() === 'true'
         : fallbackPort === 465;
 
+    console.warn('[Email] Primary SMTP failed, attempting fallback', {
+      code,
+      message: err?.message,
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      fallbackPort,
+      fallbackSecure,
+      resendConfigured: hasResendConfig,
+    });
+
     const retryConfig = await buildTransportConfig({ port: fallbackPort, secure: fallbackSecure });
     const retryTransporter = nodemailer.createTransport(retryConfig);
 
@@ -160,9 +175,17 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
       await retryTransporter.sendMail(payload);
     } catch (retryErr) {
       if (hasResendConfig) {
+        console.warn('[Email] SMTP fallback failed, attempting Resend API fallback');
         await sendViaResend({ to, subject, text, html });
         return { skipped: false, provider: 'resend' };
       }
+
+      console.warn('[Email] SMTP fallback failed and Resend is not configured:', {
+        code: retryErr?.code,
+        message: retryErr?.message || retryErr,
+        fallbackHost: process.env.SMTP_HOST,
+        fallbackPort,
+      });
       throw retryErr;
     }
   }
