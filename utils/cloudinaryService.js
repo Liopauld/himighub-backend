@@ -14,6 +14,13 @@ if (hasCloudinaryConfig) {
     api_secret: process.env.CLOUDINARY_API_SECRET,
     secure: true,
   });
+
+  console.log('[Cloudinary] Enabled', {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKeySuffix: String(process.env.CLOUDINARY_API_KEY).slice(-4),
+  });
+} else {
+  console.warn('[Cloudinary] Disabled: missing CLOUDINARY_CLOUD_NAME / CLOUDINARY_API_KEY / CLOUDINARY_API_SECRET');
 }
 
 const safeUnlink = (filePath) => {
@@ -25,13 +32,24 @@ const uploadImageFromPath = async (filePath, folder = 'himighub') => {
   if (!filePath) return null;
   if (!hasCloudinaryConfig) return null;
 
-  const result = await cloudinary.uploader.upload(filePath, {
-    folder,
-    resource_type: 'image',
-  });
+  try {
+    const result = await cloudinary.uploader.upload(filePath, {
+      folder,
+      resource_type: 'image',
+    });
 
-  safeUnlink(filePath);
-  return result.secure_url;
+    console.log('[Cloudinary] Upload success', {
+      folder,
+      publicId: result.public_id,
+      secureUrlHost: result.secure_url ? new URL(result.secure_url).host : null,
+    });
+
+    safeUnlink(filePath);
+    return result.secure_url;
+  } catch (err) {
+    console.warn('[Cloudinary] Upload failed, falling back to local upload URL:', err?.message || err);
+    return null;
+  }
 };
 
 module.exports = {
