@@ -73,6 +73,10 @@ const createProduct = async (req, res) => {
       : [];
 
     const images = [];
+    console.log('[products/create] upload payload', {
+      filesCount: Array.isArray(req.files) ? req.files.length : 0,
+      cloudinaryEnabled: hasCloudinaryConfig,
+    });
     if (req.files && req.files.length > 0) {
       for (const f of req.files) {
         if (hasCloudinaryConfig) {
@@ -85,6 +89,11 @@ const createProduct = async (req, res) => {
         images.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
       }
     }
+
+    console.log('[products/create] image sources', {
+      count: images.length,
+      cloudinaryUrls: images.filter((u) => /^https:\/\/res\.cloudinary\.com\//i.test(u)).length,
+    });
 
     const product = await Product.create({
       name,
@@ -123,6 +132,11 @@ const updateProduct = async (req, res) => {
     }
 
     if (req.files && req.files.length > 0) {
+      console.log('[products/update] upload payload', {
+        productId: req.params.id,
+        filesCount: req.files.length,
+        cloudinaryEnabled: hasCloudinaryConfig,
+      });
       const newImages = [];
       for (const f of req.files) {
         if (hasCloudinaryConfig) {
@@ -135,6 +149,12 @@ const updateProduct = async (req, res) => {
         newImages.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
       }
       product.images = [...product.images, ...newImages];
+
+      console.log('[products/update] image sources', {
+        productId: req.params.id,
+        newCount: newImages.length,
+        cloudinaryUrls: newImages.filter((u) => /^https:\/\/res\.cloudinary\.com\//i.test(u)).length,
+      });
     }
 
     await product.save();

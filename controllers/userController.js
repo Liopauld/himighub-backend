@@ -21,7 +21,7 @@ const updateProfile = async (req, res) => {
     const user = await User.findById(req.user.id);
     if (!user) return res.status(404).json({ success: false, message: 'User not found', data: {} });
 
-    const phoneValue = typeof req.body.phone === 'string' ? req.body.phone.trim() : '';
+    const phoneValue = typeof req.body.phone === 'string' ? req.body.phone.trim() : String(user.phone || '').trim();
     if (!phoneValue) {
       return res.status(400).json({
         success: false,
@@ -49,12 +49,24 @@ const updateProfile = async (req, res) => {
     }
 
     if (req.file) {
+      console.log('[users/profile] avatar upload payload', {
+        userId: user._id.toString(),
+        mimeType: req.file.mimetype,
+        originalName: req.file.originalname,
+        cloudinaryEnabled: hasCloudinaryConfig,
+      });
+
       if (hasCloudinaryConfig) {
         const uploadedUrl = await uploadImageFromPath(req.file.path, 'himighub/avatars');
         user.avatar = uploadedUrl || `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
       } else {
         user.avatar = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
       }
+
+      console.log('[users/profile] avatar result', {
+        userId: user._id.toString(),
+        avatarHost: user.avatar ? new URL(user.avatar).host : null,
+      });
     }
 
     await user.save();
