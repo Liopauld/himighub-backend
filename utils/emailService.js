@@ -11,7 +11,7 @@ const hasSmtpConfig = Boolean(
 let transporter = null;
 let transporterPromise = null;
 
-const buildTransportConfig = async () => {
+const buildTransportConfig = async ({ port, secure } = {}) => {
   const smtpHost = process.env.SMTP_HOST;
   const forceIpv4 = String(process.env.SMTP_FORCE_IPV4 || 'true') === 'true';
   let resolvedHost = smtpHost;
@@ -27,8 +27,8 @@ const buildTransportConfig = async () => {
 
   const config = {
     host: resolvedHost,
-    port: Number(process.env.SMTP_PORT),
-    secure: String(process.env.SMTP_SECURE || 'false') === 'true',
+    port: Number(port ?? process.env.SMTP_PORT),
+    secure: typeof secure === 'boolean' ? secure : String(process.env.SMTP_SECURE || 'false') === 'true',
     connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
     greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
     socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
@@ -90,14 +90,39 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
     return { skipped: true };
   }
 
-  await tx.sendMail({
+  const payload = {
     from: getFromAddress(),
     to,
     subject,
     text,
     html,
     attachments,
-  });
+  };
+
+  try {
+    await tx.sendMail(payload);
+  } catch (err) {
+    const code = String(err?.code || '').toUpperCase();
+    const message = String(err?.message || '').toLowerCase();
+    const isTimeoutLike = code === 'ETIMEDOUT' || code === 'ESOCKET' || code === 'ENETUNREACH' || message.includes('timeout');
+
+    if (!isTimeoutLike) {
+      throw err;
+    }
+
+    // Retry once with alternate SMTP mode (465 <-> 587) for provider/network compatibility.
+    const primaryPort = Number(process.env.SMTP_PORT);
+    const fallbackPort = Number(process.env.SMTP_FALLBACK_PORT || (primaryPort === 465 ? 587 : 465));
+    const fallbackSecure =
+      String(process.env.SMTP_FALLBACK_SECURE || '').trim() !== ''
+        ? String(process.env.SMTP_FALLBACK_SECURE).toLowerCase() === 'true'
+        : fallbackPort === 465;
+
+    const retryConfig = await buildTransportConfig({ port: fallbackPort, secure: fallbackSecure });
+    const retryTransporter = nodemailer.createTransport(retryConfig);
+
+    await retryTransporter.sendMail(payload);
+  }
 
   return { skipped: false };
 };

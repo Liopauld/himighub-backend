@@ -14,8 +14,17 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-  if (allowed.includes(file.mimetype)) {
+  const allowedMimes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif'];
+
+  const mime = String(file.mimetype || '').toLowerCase();
+  const ext = path.extname(String(file.originalname || '')).toLowerCase();
+
+  const mimeAllowed = allowedMimes.includes(mime);
+  const extensionAllowed = allowedExtensions.includes(ext);
+  const mobileGenericMime = mime === 'application/octet-stream' || mime === 'binary/octet-stream';
+
+  if (mimeAllowed || (mobileGenericMime && extensionAllowed)) {
     cb(null, true);
   } else {
     cb(new Error('Only JPEG, PNG, WebP, HEIC, and HEIF images are allowed'), false);
@@ -25,7 +34,7 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
   storage,
   fileFilter,
-  limits: { fileSize: 5 * 1024 * 1024, files: 5 },
+  limits: { fileSize: 15 * 1024 * 1024, files: 5 },
 });
 
 module.exports = upload;
