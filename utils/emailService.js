@@ -1,4 +1,5 @@
 const nodemailer = require('nodemailer');
+const dns = require('dns').promises;
 
 const hasSmtpConfig = Boolean(
   process.env.SMTP_HOST &&
@@ -8,16 +9,26 @@ const hasSmtpConfig = Boolean(
 );
 
 let transporter = null;
+let transporterPromise = null;
 
-const getTransporter = () => {
-  if (!hasSmtpConfig) return null;
-  if (transporter) return transporter;
+const buildTransportConfig = async () => {
+  const smtpHost = process.env.SMTP_HOST;
+  const forceIpv4 = String(process.env.SMTP_FORCE_IPV4 || 'true') === 'true';
+  let resolvedHost = smtpHost;
 
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
+  if (forceIpv4) {
+    try {
+      const lookup = await dns.lookup(smtpHost, { family: 4 });
+      resolvedHost = lookup.address || smtpHost;
+    } catch (err) {
+      console.warn('[Email] IPv4 lookup failed, using original SMTP host:', err?.message || err);
+    }
+  }
+
+  const config = {
+    host: resolvedHost,
     port: Number(process.env.SMTP_PORT),
     secure: String(process.env.SMTP_SECURE || 'false') === 'true',
-    family: 4,
     connectionTimeout: Number(process.env.SMTP_CONNECTION_TIMEOUT_MS || 10000),
     greetingTimeout: Number(process.env.SMTP_GREETING_TIMEOUT_MS || 10000),
     socketTimeout: Number(process.env.SMTP_SOCKET_TIMEOUT_MS || 20000),
@@ -25,9 +36,27 @@ const getTransporter = () => {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS,
     },
-  });
+  };
 
-  return transporter;
+  if (resolvedHost !== smtpHost) {
+    config.tls = { ...(config.tls || {}), servername: smtpHost };
+  }
+
+  return config;
+};
+
+const getTransporter = async () => {
+  if (!hasSmtpConfig) return null;
+  if (transporter) return transporter;
+  if (transporterPromise) return transporterPromise;
+
+  transporterPromise = (async () => {
+    const config = await buildTransportConfig();
+    transporter = nodemailer.createTransport(config);
+    return transporter;
+  })();
+
+  return transporterPromise;
 };
 
 const getFromAddress = () => {
@@ -49,7 +78,7 @@ const getFromAddress = () => {
 };
 
 const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
-  const tx = getTransporter();
+  const tx = await getTransporter();
   if (!tx) {
     const missing = ['SMTP_HOST', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASS']
       .filter((key) => !process.env[key]);
