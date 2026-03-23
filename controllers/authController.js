@@ -31,15 +31,17 @@ const verifyIdTokenWithRetry = async (firebaseToken, retries = 2, delayMs = 500)
   throw lastError;
 };
 
-const sendEmailSafely = async (payload, contextLabel) => {
-  try {
-    await sendEmail(payload);
-  } catch (err) {
-    console.warn(`[auth] Email send skipped (${contextLabel})`, {
-      code: err?.code,
-      message: err?.message || err,
-    });
-  }
+const sendEmailSafely = (payload, contextLabel) => {
+  setImmediate(async () => {
+    try {
+      await sendEmail(payload);
+    } catch (err) {
+      console.warn(`[auth] Email send skipped (${contextLabel})`, {
+        code: err?.code,
+        message: err?.message || err,
+      });
+    }
+  });
 };
 
 // POST /api/auth/register
@@ -60,7 +62,7 @@ const register = async (req, res) => {
 
     const user = await User.create({ name, email: normalizedEmail, password });
 
-    await sendEmailSafely({
+    sendEmailSafely({
       to: user.email,
       subject: 'Welcome to HIMIGHUB - Account Created',
       text: `Hi ${user.name}, your HIMIGHUB account has been created successfully.`,
@@ -183,7 +185,7 @@ const firebaseAuth = async (req, res) => {
 
       user = await User.create(createData);
 
-      await sendEmailSafely({
+      sendEmailSafely({
         to: user.email,
         subject: 'Welcome to HIMIGHUB - Account Created',
         text: `Hi ${user.name}, your HIMIGHUB account has been created successfully.`,

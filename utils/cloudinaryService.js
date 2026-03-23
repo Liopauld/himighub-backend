@@ -28,6 +28,8 @@ const safeUnlink = (filePath) => {
   fs.unlink(filePath, () => {});
 };
 
+const CLOUDINARY_UPLOAD_TIMEOUT_MS = 30000;
+
 const uploadImageFromPath = async (filePath, folder = 'himighub') => {
   if (!filePath) return null;
   if (!hasCloudinaryConfig) return null;
@@ -36,6 +38,7 @@ const uploadImageFromPath = async (filePath, folder = 'himighub') => {
     const result = await cloudinary.uploader.upload(filePath, {
       folder,
       resource_type: 'image',
+      timeout: CLOUDINARY_UPLOAD_TIMEOUT_MS,
     });
 
     console.log('[Cloudinary] Upload success', {

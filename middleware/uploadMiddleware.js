@@ -21,10 +21,11 @@ const fileFilter = (req, file, cb) => {
   const ext = path.extname(String(file.originalname || '')).toLowerCase();
 
   const mimeAllowed = allowedMimes.includes(mime);
+  const genericImageMime = mime.startsWith('image/');
   const extensionAllowed = allowedExtensions.includes(ext);
   const mobileGenericMime = mime === 'application/octet-stream' || mime === 'binary/octet-stream';
 
-  if (mimeAllowed || (mobileGenericMime && extensionAllowed)) {
+  if (mimeAllowed || genericImageMime || (mobileGenericMime && extensionAllowed)) {
     cb(null, true);
   } else {
     cb(new Error('Only JPEG, PNG, WebP, HEIC, and HEIF images are allowed'), false);

@@ -3,6 +3,19 @@ const User = require('../models/User');
 const { sendEmail } = require('../utils/emailService');
 const { hasCloudinaryConfig, uploadImageFromPath } = require('../utils/cloudinaryService');
 
+const sendEmailSafely = (payload, contextLabel) => {
+  setImmediate(async () => {
+    try {
+      await sendEmail(payload);
+    } catch (err) {
+      console.warn(`[users] Email send skipped (${contextLabel})`, {
+        code: err?.code,
+        message: err?.message || err,
+      });
+    }
+  });
+};
+
 // GET /api/users/profile
 const getProfile = async (req, res) => {
   try {
@@ -162,7 +175,7 @@ const updateUserStatus = async (req, res) => {
     user.isActive = isActive;
     await user.save();
 
-    await sendEmail({
+    sendEmailSafely({
       to: user.email,
       subject: isActive
         ? 'HIMIGHUB Account Verification Successful'
@@ -173,7 +186,7 @@ const updateUserStatus = async (req, res) => {
       html: isActive
         ? `<p>Hi <strong>${user.name}</strong>,</p><p>Your account has been verified and activated. You can now use HIMIGHUB.</p>`
         : `<p>Hi <strong>${user.name}</strong>,</p><p>Your account has been deactivated. If this is unexpected, contact support.</p>`,
-    });
+    }, 'update-user-status');
 
     return res.status(200).json({
       success: true,
