@@ -32,6 +32,14 @@ const parseSizes = (rawSizes) => {
   return undefined;
 };
 
+const getImageSourceFromUrl = (url) => {
+  if (!url || typeof url !== 'string') return 'unknown';
+  if (/^https:\/\/res\.cloudinary\.com\//i.test(url)) return 'cloudinary';
+  if (/\/uploads\//i.test(url)) return 'local-fallback';
+  if (/^https?:\/\//i.test(url)) return 'existing-url';
+  return 'unknown';
+};
+
 // GET /api/products
 const getProducts = async (req, res) => {
   try {
@@ -102,6 +110,7 @@ const createProduct = async (req, res) => {
     const sizes = parseSizes(rawSizes) || [];
 
     const images = [];
+    const storedImageSources = [];
     console.log('[products/create] upload payload', {
       filesCount: Array.isArray(req.files) ? req.files.length : 0,
       cloudinaryEnabled: hasCloudinaryConfig,
@@ -112,10 +121,12 @@ const createProduct = async (req, res) => {
           const uploadedUrl = await uploadImageFromPath(f.path, 'himighub/products');
           if (uploadedUrl) {
             images.push(uploadedUrl);
+            storedImageSources.push('cloudinary');
             continue;
           }
         }
         images.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
+        storedImageSources.push('local-fallback');
       }
     }
 
@@ -138,7 +149,16 @@ const createProduct = async (req, res) => {
       createdBy: req.user.id,
     });
 
-    return res.status(201).json({ success: true, message: 'Product created', data: { product } });
+    const uploadDiagnostics = {
+      mode: req.files?.length ? 'uploaded' : 'existing-url',
+      cloudinaryEnabled: hasCloudinaryConfig,
+      filesReceived: req.files?.length || 0,
+      storedImageSources,
+    };
+
+    console.log('[products/create] upload diagnostics', uploadDiagnostics);
+
+    return res.status(201).json({ success: true, message: 'Product created', data: { product, uploadDiagnostics } });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message, data: {} });
   }
@@ -178,6 +198,7 @@ const updateProduct = async (req, res) => {
       product.sizes = parsedSizes;
     }
 
+    let storedImageSources = [];
     if (req.files && req.files.length > 0) {
       console.log('[products/update] upload payload', {
         productId: req.params.id,
@@ -190,10 +211,12 @@ const updateProduct = async (req, res) => {
           const uploadedUrl = await uploadImageFromPath(f.path, 'himighub/products');
           if (uploadedUrl) {
             newImages.push(uploadedUrl);
+            storedImageSources.push('cloudinary');
             continue;
           }
         }
         newImages.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
+        storedImageSources.push('local-fallback');
       }
       product.images = [...(product.images || []), ...newImages];
 
@@ -206,7 +229,23 @@ const updateProduct = async (req, res) => {
 
     await product.save();
 
-    return res.status(200).json({ success: true, message: 'Product updated', data: { product } });
+    if (!storedImageSources.length) {
+      storedImageSources = (product.images || []).map(getImageSourceFromUrl);
+    }
+
+    const uploadDiagnostics = {
+      mode: req.files?.length ? 'uploaded' : 'existing-url',
+      cloudinaryEnabled: hasCloudinaryConfig,
+      filesReceived: req.files?.length || 0,
+      storedImageSources,
+    };
+
+    console.log('[products/update] upload diagnostics', {
+      productId: req.params.id,
+      ...uploadDiagnostics,
+    });
+
+    return res.status(200).json({ success: true, message: 'Product updated', data: { product, uploadDiagnostics } });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message, data: {} });
   }

@@ -16,6 +16,14 @@ const sendEmailSafely = (payload, contextLabel) => {
   });
 };
 
+const getImageSourceFromUrl = (url) => {
+  if (!url || typeof url !== 'string') return 'unknown';
+  if (/^https:\/\/res\.cloudinary\.com\//i.test(url)) return 'cloudinary';
+  if (/\/uploads\//i.test(url)) return 'local-fallback';
+  if (/^https?:\/\//i.test(url)) return 'existing-url';
+  return 'unknown';
+};
+
 // GET /api/users/profile
 const getProfile = async (req, res) => {
   try {
@@ -61,6 +69,7 @@ const updateProfile = async (req, res) => {
       user.address = { ...user.address.toObject?.() ?? user.address, ...addr };
     }
 
+    let avatarSource = getImageSourceFromUrl(user.avatar);
     if (req.file) {
       console.log('[users/profile] avatar upload payload', {
         userId: user._id.toString(),
@@ -75,6 +84,7 @@ const updateProfile = async (req, res) => {
       } else {
         user.avatar = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
       }
+      avatarSource = getImageSourceFromUrl(user.avatar);
 
       console.log('[users/profile] avatar result', {
         userId: user._id.toString(),
@@ -83,6 +93,18 @@ const updateProfile = async (req, res) => {
     }
 
     await user.save();
+
+    const uploadDiagnostics = {
+      mode: req.file ? 'uploaded' : 'existing-url',
+      cloudinaryEnabled: hasCloudinaryConfig,
+      filesReceived: req.file ? 1 : 0,
+      avatarSource,
+    };
+
+    console.log('[users/profile] upload diagnostics', {
+      userId: user._id.toString(),
+      ...uploadDiagnostics,
+    });
 
     return res.status(200).json({
       success: true,
@@ -99,6 +121,7 @@ const updateProfile = async (req, res) => {
           isActive: user.isActive,
           updatedAt: user.updatedAt,
         },
+        uploadDiagnostics,
       },
     });
   } catch (err) {

@@ -1,6 +1,7 @@
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const User = require('../models/User');
+const { hasCloudinaryConfig } = require('../utils/cloudinaryService');
 
 const collectedRevenueMatch = {
   status: { $ne: 'Cancelled' },
@@ -99,4 +100,32 @@ const getAnalytics = async (req, res) => {
   }
 };
 
-module.exports = { getAnalytics };
+const getUploadDiagnostics = async (req, res) => {
+  try {
+    return res.status(200).json({
+      success: true,
+      message: '',
+      data: {
+        cloudinary: {
+          enabled: hasCloudinaryConfig,
+          cloudName: process.env.CLOUDINARY_CLOUD_NAME || null,
+          apiKeySuffix: process.env.CLOUDINARY_API_KEY
+            ? String(process.env.CLOUDINARY_API_KEY).slice(-4)
+            : null,
+        },
+        uploadLimits: {
+          maxFileSizeMB: 15,
+          maxFilesPerRequest: 6,
+        },
+        hints: {
+          productUploadEndpoint: '/api/products (POST) or /api/products/:id (PUT), field name: images',
+          profileUploadEndpoint: '/api/users/profile (PUT), field name: avatar',
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message, data: {} });
+  }
+};
+
+module.exports = { getAnalytics, getUploadDiagnostics };
