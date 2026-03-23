@@ -4,6 +4,33 @@ const User = require('../models/User');
 const generateToken = require('../utils/generateToken');
 const { sendEmail } = require('../utils/emailService');
 
+const isRetryableFirebaseError = (err) => {
+  const code = String(err?.code || '').toUpperCase();
+  const message = String(err?.message || '').toLowerCase();
+  return (
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNRESET' ||
+    code === 'ENOTFOUND' ||
+    code === 'EAI_AGAIN' ||
+    message.includes('timeout') ||
+    message.includes('network')
+  );
+};
+
+const verifyIdTokenWithRetry = async (firebaseToken, retries = 2, delayMs = 500) => {
+  let lastError;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      return await admin.auth().verifyIdToken(firebaseToken);
+    } catch (err) {
+      lastError = err;
+      if (!isRetryableFirebaseError(err) || attempt === retries) break;
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (attempt + 1)));
+    }
+  }
+  throw lastError;
+};
+
 // POST /api/auth/register
 const register = async (req, res) => {
   const errors = validationResult(req);
@@ -111,7 +138,7 @@ const firebaseAuth = async (req, res) => {
   }
 
   try {
-    const decoded = await admin.auth().verifyIdToken(firebaseToken);
+    const decoded = await verifyIdTokenWithRetry(firebaseToken);
     const { uid, email, name, picture } = decoded;
     const provider = decoded.firebase?.sign_in_provider;
 
@@ -177,6 +204,15 @@ const firebaseAuth = async (req, res) => {
       code: err?.code,
       message: err?.message,
     });
+
+    if (isRetryableFirebaseError(err)) {
+      return res.status(503).json({
+        success: false,
+        message: 'Temporary Firebase verification timeout. Please try again in a few seconds.',
+        data: {},
+      });
+    }
+
     const detail = err?.message || 'Unknown Firebase token verification error';
     const code = err?.code ? ` (${err.code})` : '';
     return res.status(401).json({
