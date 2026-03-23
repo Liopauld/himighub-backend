@@ -1,6 +1,37 @@
 const Product = require('../models/Product');
 const { hasCloudinaryConfig, uploadImageFromPath } = require('../utils/cloudinaryService');
 
+const toNumber = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const toBoolean = (value) => {
+  if (value === undefined || value === null || value === '') return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(lowered)) return true;
+    if (['false', '0', 'no', 'off'].includes(lowered)) return false;
+  }
+  return undefined;
+};
+
+const parseSizes = (rawSizes) => {
+  if (rawSizes === undefined || rawSizes === null || rawSizes === '') return undefined;
+  if (Array.isArray(rawSizes)) return rawSizes;
+  if (typeof rawSizes === 'string') {
+    try {
+      const parsed = JSON.parse(rawSizes);
+      return Array.isArray(parsed) ? parsed : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+};
+
 // GET /api/products
 const getProducts = async (req, res) => {
   try {
@@ -68,9 +99,7 @@ const createProduct = async (req, res) => {
     } = req.body;
 
     const rawSizes = req.body.sizes ?? req.body['sizes[]'];
-    const sizes = rawSizes
-      ? (Array.isArray(rawSizes) ? rawSizes : JSON.parse(rawSizes))
-      : [];
+    const sizes = parseSizes(rawSizes) || [];
 
     const images = [];
     console.log('[products/create] upload payload', {
@@ -98,11 +127,11 @@ const createProduct = async (req, res) => {
     const product = await Product.create({
       name,
       description,
-      price: parseFloat(price),
-      originalPrice: originalPrice ? parseFloat(originalPrice) : null,
-      discountPercent: discountPercent ? parseFloat(discountPercent) : 0,
+      price: toNumber(price),
+      originalPrice: toNumber(originalPrice) ?? null,
+      discountPercent: toNumber(discountPercent) ?? 0,
       category,
-      stock: parseInt(stock),
+      stock: toNumber(stock),
       brand,
       sizes,
       images,
@@ -121,14 +150,32 @@ const updateProduct = async (req, res) => {
     const product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ success: false, message: 'Product not found', data: {} });
 
-    const fields = ['name', 'description', 'price', 'originalPrice', 'discountPercent', 'category', 'stock', 'brand', 'isAvailable'];
-    fields.forEach((field) => {
-      if (req.body[field] !== undefined) product[field] = req.body[field];
-    });
+    if (req.body.name !== undefined) product.name = req.body.name;
+    if (req.body.description !== undefined) product.description = req.body.description;
+    if (req.body.category !== undefined) product.category = req.body.category;
+    if (req.body.brand !== undefined) product.brand = req.body.brand;
+
+    const parsedPrice = toNumber(req.body.price);
+    if (parsedPrice !== undefined) product.price = parsedPrice;
+
+    const parsedOriginalPrice = toNumber(req.body.originalPrice);
+    if (req.body.originalPrice !== undefined) {
+      product.originalPrice = parsedOriginalPrice === undefined ? null : parsedOriginalPrice;
+    }
+
+    const parsedDiscount = toNumber(req.body.discountPercent);
+    if (parsedDiscount !== undefined) product.discountPercent = parsedDiscount;
+
+    const parsedStock = toNumber(req.body.stock);
+    if (parsedStock !== undefined) product.stock = parsedStock;
+
+    const parsedIsAvailable = toBoolean(req.body.isAvailable);
+    if (parsedIsAvailable !== undefined) product.isAvailable = parsedIsAvailable;
 
     const rawSizes = req.body.sizes ?? req.body['sizes[]'];
-    if (rawSizes) {
-      product.sizes = Array.isArray(rawSizes) ? rawSizes : JSON.parse(rawSizes);
+    const parsedSizes = parseSizes(rawSizes);
+    if (parsedSizes !== undefined) {
+      product.sizes = parsedSizes;
     }
 
     if (req.files && req.files.length > 0) {
@@ -148,7 +195,7 @@ const updateProduct = async (req, res) => {
         }
         newImages.push(`${req.protocol}://${req.get('host')}/uploads/${f.filename}`);
       }
-      product.images = [...product.images, ...newImages];
+      product.images = [...(product.images || []), ...newImages];
 
       console.log('[products/update] image sources', {
         productId: req.params.id,

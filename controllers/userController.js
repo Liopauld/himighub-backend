@@ -197,10 +197,11 @@ const updateUserStatus = async (req, res) => {
 // PUT /api/users/:id/role  (admin)
 const updateUserRole = async (req, res) => {
   try {
-    const { role } = req.body;
-    const validRoles = ['user', 'admin'];
+    const incomingRole = String(req.body.role || '').trim().toLowerCase();
+    const normalizedRole = incomingRole === 'user' ? 'customer' : incomingRole;
+    const validRoles = ['customer', 'admin'];
 
-    if (!validRoles.includes(role)) {
+    if (!validRoles.includes(normalizedRole)) {
       return res.status(400).json({ success: false, message: 'Invalid role', data: {} });
     }
 
@@ -208,11 +209,11 @@ const updateUserRole = async (req, res) => {
     if (!user) return res.status(404).json({ success: false, message: 'User not found', data: {} });
 
     // Prevent accidentally stripping your own admin permissions.
-    if (req.user.id === user._id.toString() && role !== 'admin') {
+    if (req.user.id === user._id.toString() && normalizedRole !== 'admin') {
       return res.status(400).json({ success: false, message: 'You cannot remove your own admin role', data: {} });
     }
 
-    user.role = role;
+    user.role = normalizedRole;
     await user.save();
 
     return res.status(200).json({
