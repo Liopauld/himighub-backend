@@ -251,8 +251,38 @@ const sendEmail = async ({ to, subject, text, html, attachments = [] }) => {
   const wantsBrevo = preferredProvider === 'brevo' || (preferredProvider === 'auto' && hasBrevoConfig);
 
   if (wantsBrevo) {
-    await sendViaBrevo({ to, subject, text, html, attachments });
-    return { skipped: false, provider: 'brevo' };
+    try {
+      await sendViaBrevo({ to, subject, text, html, attachments });
+      return { skipped: false, provider: 'brevo' };
+    } catch (brevoErr) {
+      console.warn('[Email] Brevo API failed, attempting fallback', {
+        code: brevoErr?.code,
+        message: brevoErr?.message || brevoErr,
+        smtpConfigured: hasSmtpConfig,
+        resendConfigured: hasResendConfig,
+      });
+
+      const txFallback = await getTransporter();
+      if (txFallback) {
+        const fallbackPayload = {
+          from: getFromAddress(),
+          to,
+          subject,
+          text,
+          html,
+          attachments,
+        };
+        await txFallback.sendMail(fallbackPayload);
+        return { skipped: false, provider: 'smtp' };
+      }
+
+      if (hasResendConfig) {
+        await sendViaResend({ to, subject, text, html });
+        return { skipped: false, provider: 'resend' };
+      }
+
+      throw brevoErr;
+    }
   }
 
   const tx = await getTransporter();
