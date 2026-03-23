@@ -55,7 +55,38 @@ const uploadImageFromPath = async (filePath, folder = 'himighub') => {
   }
 };
 
+const extractCloudinaryPublicId = (assetUrl) => {
+  if (!assetUrl || typeof assetUrl !== 'string') return null;
+
+  const withoutQuery = assetUrl.split('?')[0];
+  const match = withoutQuery.match(/\/upload\/(?:v\d+\/)?(.+)\.[a-z0-9]+$/i);
+  return match?.[1] || null;
+};
+
+const deleteCloudinaryImageByUrl = async (assetUrl) => {
+  if (!hasCloudinaryConfig) return { deleted: false, reason: 'cloudinary-disabled' };
+
+  const publicId = extractCloudinaryPublicId(assetUrl);
+  if (!publicId) return { deleted: false, reason: 'invalid-cloudinary-url' };
+
+  try {
+    const result = await cloudinary.uploader.destroy(publicId, {
+      resource_type: 'image',
+      invalidate: true,
+    });
+
+    return { deleted: result?.result === 'ok', result: result?.result || 'unknown', publicId };
+  } catch (err) {
+    console.warn('[Cloudinary] Delete failed', {
+      publicId,
+      message: err?.message || err,
+    });
+    return { deleted: false, reason: err?.message || 'delete-failed', publicId };
+  }
+};
+
 module.exports = {
   hasCloudinaryConfig,
   uploadImageFromPath,
+  deleteCloudinaryImageByUrl,
 };

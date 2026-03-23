@@ -11,7 +11,13 @@ const hasSmtpConfig = Boolean(
 );
 
 const hasResendConfig = Boolean(process.env.RESEND_API_KEY);
-const hasBrevoConfig = Boolean(process.env.BREVO_API_KEY);
+const rawBrevoApiKey = String(process.env.BREVO_API_KEY || '').trim();
+const brevoKeyLooksLikeSmtpKey = /^xsmtp/i.test(rawBrevoApiKey);
+const hasBrevoConfig = Boolean(rawBrevoApiKey) && !brevoKeyLooksLikeSmtpKey;
+
+if (brevoKeyLooksLikeSmtpKey) {
+  console.warn('[Email] BREVO_API_KEY appears to be an SMTP key (xsmtp...). Skipping Brevo API provider and relying on SMTP fallback.');
+}
 
 const preferredProvider = String(process.env.EMAIL_PROVIDER || 'auto').trim().toLowerCase();
 

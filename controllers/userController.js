@@ -1,7 +1,11 @@
 const path = require('path');
 const User = require('../models/User');
 const { sendEmail } = require('../utils/emailService');
-const { hasCloudinaryConfig, uploadImageFromPath } = require('../utils/cloudinaryService');
+const {
+  hasCloudinaryConfig,
+  uploadImageFromPath,
+  deleteCloudinaryImageByUrl,
+} = require('../utils/cloudinaryService');
 
 const sendEmailSafely = (payload, contextLabel) => {
   setImmediate(async () => {
@@ -69,7 +73,10 @@ const updateProfile = async (req, res) => {
       user.address = { ...user.address.toObject?.() ?? user.address, ...addr };
     }
 
-    let avatarSource = getImageSourceFromUrl(user.avatar);
+    const previousAvatar = user.avatar;
+    const previousAvatarSource = getImageSourceFromUrl(previousAvatar);
+    let avatarSource = previousAvatarSource;
+    let avatarReplaced = false;
     if (req.file) {
       console.log('[users/profile] avatar upload payload', {
         userId: user._id.toString(),
@@ -85,6 +92,19 @@ const updateProfile = async (req, res) => {
         user.avatar = `${req.protocol}://${req.get('host')}/uploads/${req.file.filename}`;
       }
       avatarSource = getImageSourceFromUrl(user.avatar);
+      avatarReplaced = Boolean(user.avatar && previousAvatar !== user.avatar);
+
+      // Clean up old avatar in background when a Cloudinary image was replaced.
+      if (avatarReplaced && previousAvatarSource === 'cloudinary') {
+        setImmediate(async () => {
+          const cleanupResult = await deleteCloudinaryImageByUrl(previousAvatar);
+          console.log('[users/profile] previous avatar cleanup', {
+            userId: user._id.toString(),
+            previousAvatar,
+            cleanupResult,
+          });
+        });
+      }
 
       console.log('[users/profile] avatar result', {
         userId: user._id.toString(),
@@ -98,7 +118,9 @@ const updateProfile = async (req, res) => {
       mode: req.file ? 'uploaded' : 'existing-url',
       cloudinaryEnabled: hasCloudinaryConfig,
       filesReceived: req.file ? 1 : 0,
+      previousAvatarSource,
       avatarSource,
+      avatarReplaced,
     };
 
     console.log('[users/profile] upload diagnostics', {
